@@ -5,9 +5,11 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 export interface MultiplayerCallbacks {
   onStatusChange?: (status: ConnectionStatus) => void;
   onRoomJoined?: (roomCode: string, selfId: string, initialPlayers: MultiplayerPlayer[]) => void;
+  onRoomLeft?: () => void;
   onPlayerJoined?: (player: MultiplayerPlayer) => void;
   onPlayerUpdated?: (player: MultiplayerPlayer) => void;
   onPlayerLeft?: (playerId: string) => void;
+  onPlayersUpdate?: (players: Map<string, MultiplayerPlayer>) => void;
   onPlayerAction?: (playerId: string, action: any) => void;
   onChatMessage?: (chat: MultiplayerChatMessage) => void;
   onError?: (err: any) => void;
@@ -18,11 +20,16 @@ export class MultiplayerManager {
   public status: ConnectionStatus = 'disconnected';
   public currentRoomCode: string | null = null;
   public selfPlayerId: string = 'p_' + Math.random().toString(36).substring(2, 9);
+  public playerName: string = 'Speler';
   public remotePlayers = new Map<string, MultiplayerPlayer>();
   public chatMessages: MultiplayerChatMessage[] = [];
   private callbacks: MultiplayerCallbacks = {};
   private lastSentTime = 0;
   private sendIntervalMs = 50; // 20 updates per second for smooth real-time syncing
+
+  public get localPlayerId(): string {
+    return this.selfPlayerId;
+  }
 
   constructor(callbacks: MultiplayerCallbacks = {}) {
     this.callbacks = callbacks;
@@ -32,11 +39,16 @@ export class MultiplayerManager {
     this.callbacks = { ...this.callbacks, ...callbacks };
   }
 
-  public connectAndJoin(roomCode: string, playerName: string, initialPlayerState: Partial<MultiplayerPlayer>) {
+  public connect(roomCode: string, playerName: string, initialPlayerState: Partial<MultiplayerPlayer> = {}) {
+    this.connectAndJoin(roomCode, playerName, initialPlayerState);
+  }
+
+  public connectAndJoin(roomCode: string, playerName: string, initialPlayerState: Partial<MultiplayerPlayer> = {}) {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       this.disconnect();
     }
 
+    if (playerName) this.playerName = playerName;
     const cleanCode = roomCode.trim().toUpperCase().slice(0, 8);
     this.currentRoomCode = cleanCode;
     this.setStatus('connecting');
@@ -101,6 +113,7 @@ export class MultiplayerManager {
     this.currentRoomCode = null;
     this.remotePlayers.clear();
     this.setStatus('disconnected');
+    this.callbacks.onRoomLeft?.();
   }
 
   private setStatus(status: ConnectionStatus) {
@@ -117,6 +130,7 @@ export class MultiplayerManager {
           this.remotePlayers.set(p.id, p);
         });
         this.callbacks.onRoomJoined?.(msg.roomCode, msg.selfId, msg.players || []);
+        this.callbacks.onPlayersUpdate?.(this.remotePlayers);
         break;
       }
 
@@ -124,6 +138,7 @@ export class MultiplayerManager {
         if (msg.player && msg.player.id !== this.selfPlayerId) {
           this.remotePlayers.set(msg.player.id, msg.player);
           this.callbacks.onPlayerJoined?.(msg.player);
+          this.callbacks.onPlayersUpdate?.(this.remotePlayers);
         }
         break;
       }
@@ -137,6 +152,7 @@ export class MultiplayerManager {
             this.remotePlayers.set(msg.player.id, msg.player);
           }
           this.callbacks.onPlayerUpdated?.(msg.player);
+          this.callbacks.onPlayersUpdate?.(this.remotePlayers);
         }
         break;
       }
@@ -145,6 +161,7 @@ export class MultiplayerManager {
         if (msg.playerId) {
           this.remotePlayers.delete(msg.playerId);
           this.callbacks.onPlayerLeft?.(msg.playerId);
+          this.callbacks.onPlayersUpdate?.(this.remotePlayers);
         }
         break;
       }
@@ -160,8 +177,8 @@ export class MultiplayerManager {
         const chatItem: MultiplayerChatMessage = {
           id: 'chat_' + Math.random().toString(36).substring(2, 7),
           playerId: msg.playerId,
-          senderName: msg.senderName,
-          text: msg.text,
+          playerName: msg.playerName || msg.senderName || 'Speler',
+          message: msg.message || msg.text || '',
           timestamp: msg.timestamp || Date.now()
         };
         this.chatMessages.push(chatItem);
@@ -192,11 +209,16 @@ export class MultiplayerManager {
     });
   }
 
+  public sendChat(text: string) {
+    this.sendChatMessage(text);
+  }
+
   public sendChatMessage(text: string) {
     if (!this.isConnected() || !text.trim()) return;
     this.send({
       type: 'chat',
-      text: text.trim()
+      text: text.trim(),
+      playerName: this.playerName
     });
   }
 

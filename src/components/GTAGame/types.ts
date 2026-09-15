@@ -28,6 +28,7 @@ export interface Player {
   armor: number;
   maxArmor: number;
   cash: number;
+  skin?: 'michael' | 'franklin' | 'trevor';
   wantedLevel: number; // 0-5
   wantedTimer: number; // time left before stars disappear if unseen
   inVehicleId: string | null;
@@ -55,6 +56,7 @@ export interface Vehicle {
   id: string;
   type: VehicleType;
   name: string;
+  model?: string;
   x: number;
   y: number;
   vx: number;
@@ -416,8 +418,8 @@ export interface MultiplayerPlayer {
 export interface MultiplayerChatMessage {
   id: string;
   playerId: string;
-  senderName: string;
-  text: string;
+  playerName: string;
+  message: string;
   timestamp: number;
 }
 
